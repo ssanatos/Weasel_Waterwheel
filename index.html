@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>족제비 물레방아</title>
+<style>
+html,body{margin:0;height:100%;background:#0a1620;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;font-family:"Noto Sans KR","Malgun Gothic",sans-serif;color:#e8f6fb}
+canvas{display:block}
+.box{position:fixed;background:rgba(6,20,30,.55);backdrop-filter:blur(6px);border-radius:12px;padding:8px 14px}
+#time{left:14px;top:14px}#time small{display:block;font-size:12px;color:#9fd6e6}#tv{font-size:30px;color:#ffd48a}
+#best{right:14px;top:14px;font-size:14px;color:#9fd6e6}
+#flow{left:14px;top:100px;width:36px;height:190px;text-align:center;font-size:12px;color:#9fd6e6}
+#fb{position:absolute;left:12px;right:12px;top:30px;bottom:10px;background:rgba(255,255,255,.14);border-radius:6px;overflow:hidden}
+#ff{position:absolute;left:0;right:0;bottom:0;height:40%;background:linear-gradient(#cdf4ff,#2f8fc0)}
+#bal{left:50%;bottom:16px;transform:translateX(-50%);width:300px}
+#track{position:relative;height:14px;border-radius:7px;background:rgba(255,90,70,.6)}
+#safe{position:absolute;left:30%;width:40%;top:0;bottom:0;background:rgba(120,220,150,.85)}
+#mk{position:absolute;top:-5px;width:10px;height:24px;border-radius:4px;background:#ffd48a;left:50%;margin-left:-5px}
+#lbl{display:flex;justify-content:space-between;font-size:12px;color:#9fd6e6;margin-top:6px}
+#warn{position:fixed;inset:0;pointer-events:none;opacity:0;background:radial-gradient(transparent 45%,rgba(255,40,20,.55))}
+#ov{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(4,14,22,.6);text-align:center;padding:20px}
+#ov h1{font-size:clamp(34px,8vw,60px);margin:0 0 12px;color:#ffd48a}#ov p{margin:6px 0;font-size:clamp(15px,3.6vw,21px)}#ov .s{color:#9fd6e6;white-space:pre-line}
+</style>
+</head>
+<body>
+<div id="time" class="box"><small>생존 시간</small><span id="tv">0.0초</span></div>
+<div id="best" class="box">최고 기록 0.0초</div>
+<div id="flow" class="box">물<div id="fb"><div id="ff"></div></div></div>
+<div id="bal" class="box"><div id="track"><div id="safe"></div><div id="mk"></div></div><div id="lbl"><span>뒤로 밀림</span><span>앞으로 쏠림</span></div></div>
+<div id="warn"></div>
+<div id="ov"><h1>족제비 물레방아</h1><p id="ld" style="color:#ffd48a">모델 불러오는 중… 0%</p><p>물의 양에 맞춰 달려서 물레방아 위에 머무르세요</p><p class="s">누르고 있으면 달리고, 떼면 느려져요
+(스페이스 · → · 화면 터치)
+
+시작하려면 탭</p></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+const $=id=>document.getElementById(id),R=150,PHI_MAX=.7,RW=3,WD=1.7,POOL=-1.5,SX=-3.55;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+// ---------- 렌더러 ----------
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;renderer.outputEncoding=THREE.sRGBEncoding;
+document.body.prepend(renderer.domElement);
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(38,1,.1,200);
+scene.fog=new THREE.Fog(0xa9bfc0,22,95);
+let camZ=14;
+function resize(){const a=innerWidth/innerHeight;renderer.setSize(innerWidth,innerHeight);cam.aspect=a;camZ=Math.min(30,14*Math.max(1,1.55/a));cam.updateProjectionMatrix();}
+addEventListener('resize',resize);resize();
+// 하늘 + 환경광(반사)
+(function(){const c=document.createElement('canvas');c.width=1024;c.height=512;const x=c.getContext('2d');
+ const gr=x.createLinearGradient(0,0,0,512);gr.addColorStop(0,'#274f70');gr.addColorStop(.4,'#8fb3bd');gr.addColorStop(.5,'#f0c48c');gr.addColorStop(.52,'#7f9a94');gr.addColorStop(1,'#2a3d3a');x.fillStyle=gr;x.fillRect(0,0,1024,512);
+ const sg=x.createRadialGradient(348,225,2,348,225,130);sg.addColorStop(0,'#fff7df');sg.addColorStop(.18,'rgba(255,214,150,.8)');sg.addColorStop(1,'rgba(255,200,120,0)');x.fillStyle=sg;x.fillRect(0,0,1024,512);
+ const t=new THREE.CanvasTexture(c);t.mapping=THREE.EquirectangularReflectionMapping;t.encoding=THREE.sRGBEncoding;
+ scene.background=t;scene.environment=new THREE.PMREMGenerator(renderer).fromEquirectangular(t).texture;})();
+const key=new THREE.DirectionalLight(0xffe0b0,2.6);key.position.set(-6,9,10);key.castShadow=true;
+Object.assign(key.shadow.camera,{left:-8,right:8,top:8,bottom:-8,near:1,far:40});key.shadow.mapSize.set(2048,2048);key.shadow.bias=-.0004;scene.add(key);
+scene.add(new THREE.HemisphereLight(0x9ec8d8,0x3a2a1c,.5));
+
+// ---------- 텍스처 ----------
+function wood(base,rep,rot){const c=document.createElement('canvas');c.width=256;c.height=512;const x=c.getContext('2d');x.fillStyle=base;x.fillRect(0,0,256,512);
+ for(let i=0;i<280;i++){const px=Math.random()*256;x.strokeStyle=`rgba(${20+Math.random()*30|0},${10+Math.random()*20|0},5,${.05+Math.random()*.2})`;x.lineWidth=.6+Math.random()*2.2;x.beginPath();x.moveTo(px,0);for(let y=0;y<=512;y+=32)x.lineTo(px+Math.sin(y*.02+i)*3+(Math.random()-.5)*1.5,y);x.stroke();}
+ for(let i=0;i<4;i++){const kx=Math.random()*256,ky=Math.random()*512,rg=x.createRadialGradient(kx,ky,1,kx,ky,14);rg.addColorStop(0,'rgba(20,10,4,.7)');rg.addColorStop(1,'rgba(20,10,4,0)');x.fillStyle=rg;x.fillRect(kx-14,ky-14,28,28);}
+ const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rep[0],rep[1]);t.encoding=THREE.sRGBEncoding;t.anisotropy=8;if(rot){t.center.set(.5,.5);t.rotation=Math.PI/2;}return t;}
+function noiseTex(a,b,rep,sz=256){const c=document.createElement('canvas');c.width=c.height=sz;const x=c.getContext('2d');x.fillStyle=a;x.fillRect(0,0,sz,sz);
+ for(let i=0;i<2500;i++){x.fillStyle=Math.random()<.5?b:'rgba(0,0,0,.12)';x.globalAlpha=.25+Math.random()*.5;const w=3+Math.random()*14;x.fillRect(Math.random()*sz,Math.random()*sz,w,w*rnd(.5,1));}
+ const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rep,rep);t.encoding=THREE.sRGBEncoding;return t;}
+const woodM=(b,rep,rot,col=0xd8c0a0)=>{const t=wood(b,rep,rot);return new THREE.MeshStandardMaterial({map:t,bumpMap:t,bumpScale:.8,roughness:.86,color:col});};
+const metalM=new THREE.MeshStandardMaterial({color:0x4a4a4e,metalness:.85,roughness:.45});
+const S=(m,x,y,z,p,cast=true)=>{m.position.set(x,y,z);m.castShadow=cast;m.receiveShadow=true;(p||scene).add(m);return m;};
+const box=(w,h,d,mat,x,y,z,p)=>S(new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat),x,y,z,p);
+
+// ---------- 물레방아 ----------
+const wheel=new THREE.Group();scene.add(wheel);
+const darkW=woodM('#5a3a22',[2,1]),midW=woodM('#7a5230',[1,1]),slatW=woodM('#8a6038',[1,1],true);
+for(const z of[-WD/2,WD/2])S(new THREE.Mesh(new THREE.TorusGeometry(RW-.1,.17,10,72),darkW),0,0,z,wheel);
+for(const z of[-WD/2+.1,WD/2-.1])for(let i=0;i<8;i++){const gp=new THREE.Group();gp.rotation.z=i*Math.PI/4;wheel.add(gp);box(RW,.24,.16,midW,RW/2,0,z,gp);}
+const N=36;
+for(let i=0;i<N;i++){const gp=new THREE.Group();gp.rotation.z=i*2*Math.PI/N;wheel.add(gp);box(.14,.5,WD+.3,slatW,RW+.03,0,0,gp);}
+for(let i=0;i<12;i++){const gp=new THREE.Group();gp.rotation.z=(i+.5)*Math.PI/6;wheel.add(gp);box(.2,.1,WD+.3,darkW,RW+.2,0,0,gp);}
+for(const z of[-WD/2+.1,WD/2-.1])S(new THREE.Mesh(new THREE.TorusGeometry(RW+.1,.045,6,72),metalM),0,0,z,wheel);
+const axle=S(new THREE.Mesh(new THREE.CylinderGeometry(.34,.34,WD+3.2,20),metalM),0,0,0,wheel);axle.rotation.x=Math.PI/2;
+// 받침대
+for(const z of[-1.45,1.45])for(const sg of[-1,1]){const p=box(.34,4.1,.34,darkW,sg*.9,-2,z);p.rotation.z=sg*.28;}
+box(.5,.5,3.2,darkW,0,-.05,0).visible=false;
+
+// ---------- 방앗간·지형 ----------
+const stone=new THREE.MeshStandardMaterial({map:noiseTex('#6c6a64','#8a877e',3),roughness:.95,bumpMap:noiseTex('#888','#ccc',3),bumpScale:2});
+box(12,2.6,3.4,stone,4.5,-2.1,-3.9);
+box(11,7,3,woodM('#6b4a2e',[4,2],false,0xcdb596),4.5,2.7,-3.9);
+for(const sg of[-1,1]){const r=box(12.4,.3,2.3,woodM('#4a3226',[3,1],false,0x9a8a7a),4.5,6.7,-3.9+sg*1.05);r.rotation.x=sg*.62;}
+const win=new THREE.Mesh(new THREE.PlaneGeometry(1.1,1.4),new THREE.MeshBasicMaterial({color:0xffc96a}));win.position.set(7,2.2,-2.38);scene.add(win);
+const wl=new THREE.PointLight(0xffb560,6,9);wl.position.set(7,2.2,-1.2);scene.add(wl);
+const grass=new THREE.MeshStandardMaterial({map:noiseTex('#4b5a32','#6a7a40',14),roughness:1});
+box(90,.4,50,grass,0,-1.2,-27);
+const bed=new THREE.Mesh(new THREE.PlaneGeometry(120,80),new THREE.MeshStandardMaterial({map:noiseTex('#5a4c3a','#7a6a52',24),roughness:1}));bed.rotation.x=-Math.PI/2;bed.position.set(0,-3.4,10);bed.receiveShadow=true;scene.add(bed);
+for(let i=0;i<70;i++){const x=rnd(-40,40),z=rnd(-14,-45),h=rnd(4,9),c=new THREE.Mesh(new THREE.ConeGeometry(h*.28,h,8),new THREE.MeshStandardMaterial({color:new THREE.Color().setHSL(.33,.35,rnd(.12,.2)),roughness:1}));c.position.set(x,-1+h/2,z);scene.add(c);}
+for(let i=0;i<14;i++){const r=new THREE.Mesh(new THREE.IcosahedronGeometry(rnd(.25,.6),1),stone);r.position.set(rnd(-12,12),-1.2,rnd(-2.6,-1.8));r.scale.y=.6;r.castShadow=r.receiveShadow=true;scene.add(r);}
+// 수로
+const flume=box(7,.22,.9,darkW,-6.6,2.55,0);box(7,.5,.1,midW,-6.6,2.8,.45);box(7,.5,.1,midW,-6.6,2.8,-.45);
+const fw=new THREE.Mesh(new THREE.BoxGeometry(6.8,.08,.7),new THREE.MeshStandardMaterial({color:0x4aa3c8,roughness:.1,transparent:true,opacity:.8}));fw.position.set(-6.6,2.78,0);scene.add(fw);
+for(const x of[-9.5,-6.5,-3.9])for(const z of[-.4,.4])box(.2,5.3,.2,darkW,x,0,z);
+const stream=new THREE.Mesh(new THREE.CylinderGeometry(1,1,4.05,16),new THREE.MeshStandardMaterial({color:0xd0f0ff,roughness:.1,transparent:true,opacity:.5}));stream.position.set(SX,.52,0);scene.add(stream);
+// 물
+const wg=new THREE.PlaneGeometry(80,60,90,60),wp=wg.attributes.position;
+const water=new THREE.Mesh(wg,new THREE.MeshStandardMaterial({color:0x2b7a92,transparent:true,opacity:.84,roughness:.06,metalness:.1,envMapIntensity:1.8}));
+water.rotation.x=-Math.PI/2;water.position.set(0,POOL,10);water.receiveShadow=true;scene.add(water);
+// 물방울
+const NP=700,pp=new Float32Array(NP*3),pv=new Float32Array(NP*3),pl=new Uint8Array(NP);
+const pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.BufferAttribute(pp,3));
+const dc=document.createElement('canvas');dc.width=dc.height=32;{const x=dc.getContext('2d'),r=x.createRadialGradient(16,16,1,16,16,15);r.addColorStop(0,'#fff');r.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=r;x.fillRect(0,0,32,32);}
+const pts=new THREE.Points(pg,new THREE.PointsMaterial({color:0xe6f7ff,size:.16,map:new THREE.CanvasTexture(dc),transparent:true,opacity:.9,depthWrite:false}));pts.frustumCulled=false;scene.add(pts);
+for(let i=0;i<NP;i++)pp[i*3+1]=-99;
+let pi=0;function spawn(x,y,z,vx,vy,vz,sp){const i=pi++%NP;pp.set([x,y,z],i*3);pv.set([vx,vy,vz],i*3);pl[i]=sp?2:1;}
+
+// ---------- 족제비 (털 쉘 기법) ----------
+const NF=9,fnoise=(()=>{const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d'),d=x.createImageData(128,128);for(let i=0;i<d.data.length;i+=4){d.data[i]=d.data[i+1]=d.data[i+2]=Math.random()*255;d.data[i+3]=255;}x.putImageData(d,0,0);
+ const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(10,6);return t;})();
+const mc={},fm=(col,i)=>mc[col+i]||(mc[col+i]=i?new THREE.MeshStandardMaterial({color:new THREE.Color(col).multiplyScalar(.5+.6*i/NF),alphaMap:fnoise,alphaTest:.1+.8*i/NF,roughness:.95}):new THREE.MeshStandardMaterial({color:new THREE.Color(col).multiplyScalar(.5),roughness:.95}));
+const ub=new THREE.SphereGeometry(1,20,14);
+function fur(sx,sy,sz,col,x,y,z,parent,len=.04){const gp=new THREE.Group();gp.position.set(x,y,z);parent.add(gp);
+ for(let i=0;i<=NF;i++){const g=ub.clone(),p=g.attributes.position;
+  for(let k=0;k<p.count;k++){let ux=p.getX(k),uy=p.getY(k),uz=p.getZ(k),nx=ux/sx,ny=uy/sy,nz=uz/sz;const l=Math.hypot(nx,ny,nz)||1,h=len*i/NF/l;p.setXYZ(k,ux*sx+nx*h,uy*sy+ny*h,uz*sz+nz*h);}
+  const m=new THREE.Mesh(g,fm(col,i));m.castShadow=i===0;gp.add(m);}
+ return gp;}
+const BR=0x9a6430,CR=0xe6d2a8,DK=0x4a2a14;
+const weasel=new THREE.Group(),body=new THREE.Group();weasel.add(body);weasel.scale.setScalar(1.3);scene.add(weasel);
+const t1=fur(.36,.18,.17,BR,-.38,.26,0,body),t2=fur(.38,.19,.18,BR,0,.28,0,body),t3=fur(.32,.18,.17,BR,.36,.29,0,body);
+fur(.5,.07,.11,CR,0,.15,0,body,.03);fur(.24,.12,.12,BR,.66,.32,0,body);fur(.18,.11,.1,0xa86a34,.88,.33,0,body);fur(.12,.07,.065,CR,1.04,.3,0,body,.02);
+const dark=new THREE.MeshStandardMaterial({color:0x0a0806,roughness:.15,metalness:.2});
+const nose=new THREE.Mesh(new THREE.SphereGeometry(.035,10,8),dark);nose.position.set(1.14,.31,0);body.add(nose);
+for(const z of[-.075,.075]){const e=new THREE.Mesh(new THREE.SphereGeometry(.026,10,8),dark);e.position.set(.94,.37,z);body.add(e);fur(.04,.055,.025,BR,.82,.45,z*1.1,body,.015);}
+const tail=new THREE.Group();tail.position.set(-.7,.3,0);body.add(tail);
+fur(.2,.085,.085,0x7a4a24,-.15,0,0,tail);fur(.18,.07,.07,0x5a3418,-.4,.01,0,tail);fur(.17,.055,.055,DK,-.62,.02,0,tail);
+const legs=[];
+for(const [hx,hz,off] of [[.4,.1,0],[.4,-.1,Math.PI],[-.38,.1,Math.PI],[-.38,-.1,0]]){const hip=new THREE.Group();hip.position.set(hx,.22,hz);body.add(hip);
+ fur(.055,.12,.055,0x8a5428,0,-.08,0,hip);fur(.085,.04,.06,0x6a4020,.03,-.2,0,hip,.02);legs.push({hip,off});}
+body.traverse(o=>{if(o.isMesh)o.receiveShadow=true;});
+
+// ---------- GLB 모델 (mink_lowpoly.glb) ----------
+const MODEL_FILE='mink_lowpoly.glb',MODEL_LEN=2.2; // 모델 전체 길이(꼬리 포함, 월드 단위)
+let model=null,mixer=null,loading=true,ts=0;
+new THREE.GLTFLoader().load(MODEL_FILE,gltf=>{
+ const holder=new THREE.Group();holder.add(gltf.scene);holder.rotation.y=Math.PI/2+.11; // 머리가 +x(달리는 방향)를 보도록
+ const wrap=new THREE.Group();wrap.add(holder);wrap.updateMatrixWorld(true);
+ const bb=new THREE.Box3().setFromObject(wrap),sz=bb.getSize(new THREE.Vector3());
+ wrap.scale.setScalar(MODEL_LEN/sz.x);
+ holder.position.set(-(bb.min.x+bb.max.x)/2,-bb.min.y,-(bb.min.z+bb.max.z)/2);
+ gltf.scene.traverse(o=>{if(o.isMesh){o.castShadow=o.receiveShadow=true;o.frustumCulled=false;}});
+ if(gltf.animations.length){mixer=new THREE.AnimationMixer(gltf.scene);mixer.clipAction(gltf.animations[0]).play();}
+ body.visible=false;weasel.scale.setScalar(1);weasel.add(wrap);model=wrap;
+ loading=false;$('ld').textContent='';
+},e=>{if(e.total)$('ld').textContent='모델 불러오는 중… '+Math.round(e.loaded/e.total*100)+'%';},
+err=>{console.error(err);loading=false;$('ld').textContent='모델 파일을 못 불러와서 기본 족제비로 실행해요 (깃허브 페이지나 웹서버에서 열어야 해요)';});
+
+// ---------- 게임 ----------
+let state='ready',t=0,best=+(localStorage.getItem('weaselBest')||0),s=110,flow=.4,flowT=.4,flowTimer=2,v=0,phi=0,ph=0,hold=false,deadT=0,shake=0,fall=null,clock=0,warn=0,fallT=0;
+$('best').textContent='최고 기록 '+best.toFixed(1)+'초';
+function start(){state='play';t=0;s=110;flow=.4;flowT=.4;flowTimer=2;v=110;phi=0;fall=null;deadT=0;$('ov').style.display='none';}
+function press(){if(loading)return;if(state==='ready'||(state==='dead'&&deadT>.9))start();hold=true;}
+addEventListener('pointerdown',e=>{e.preventDefault();press()});
+addEventListener('pointerup',()=>hold=false);addEventListener('pointercancel',()=>hold=false);
+const keys=[' ','ArrowRight','ArrowUp','d','D'];
+addEventListener('keydown',e=>{if(keys.includes(e.key)){e.preventDefault();press()}});
+addEventListener('keyup',e=>{if(keys.includes(e.key))hold=false});
+
+function place(){const r=RW+.14;
+ if(state!=='dead'){weasel.visible=true;weasel.position.set(r*Math.sin(phi),r*Math.cos(phi),0);weasel.rotation.set(0,0,-phi);}
+ else if(fall){weasel.position.set(fall.x,fall.y,fall.z);weasel.rotation.set(fall.rx,0,fall.r);weasel.visible=fall.y>-3;}
+ const f=state==='dead'?0:Math.sin(ph*2)*.02;body.position.y=Math.abs(Math.sin(ph))*.02*(v>20?1:0);body.rotation.z=f;t2.rotation.z=Math.sin(ph*2+1)*.03;
+ const sp=state==='dead'?0:Math.min(1,v/120);
+ for(const l of legs)l.hip.rotation.z=state==='dead'?.8*(l.off?1:-1):Math.sin(ph+l.off)*.75*sp;
+ tail.rotation.z=Math.sin(ph*.9)*.08*sp+.1;tail.rotation.y=Math.sin(clock*3)*.1;}
+
+function update(dt){
+ clock+=dt;
+ if(state==='play'){
+  t+=dt;fallT=t;const k=Math.min(1,t/90);flowTimer-=dt;
+  if(flowTimer<=0){flowT=.1+Math.random()*(.55+.4*k);flowTimer=3.2-1.9*k+Math.random()*.8;}
+  flow+=(flowT-flow)*Math.min(1,dt*1.5);
+  s+=(45+flow*235-s)*Math.min(1,dt*.75);
+  v+=(hold?340:-250)*dt;v=Math.max(0,Math.min(340,v));
+  phi+=(v-s)/R*dt;ph+=v*dt*.06;
+  warn=Math.max(0,Math.abs(phi)/PHI_MAX-.6)/.4;
+  if(Math.abs(phi)>PHI_MAX){state='dead';deadT=0;shake=.5;const r=RW+.14;
+   fall={x:r*Math.sin(phi),y:r*Math.cos(phi),z:0,vx:(phi<0?-s*.6:v*.8)*.02,vy:2.6,vz:0,r:-phi,rx:0,sp:phi<0?4:-5,splashed:false};
+   if(t>best){best=t;try{localStorage.setItem('weaselBest',best)}catch(e){}}
+   $('best').textContent='최고 기록 '+best.toFixed(1)+'초';
+   $('ov').style.display='flex';$('ov').innerHTML=`<h1 style="opacity:0">.</h1>`;}
+ }else{flow+=(.3-flow)*dt;s+=(40-s)*dt*.5;if(state==='dead'){deadT+=dt;
+  if(deadT>.7&&!$('ov').dataset.s){$('ov').dataset.s=1;$('ov').innerHTML=`<h1>풍덩!</h1><p>생존 시간 ${fallT.toFixed(1)}초</p><p class="s">${fallT>=best-.001?'신기록이에요!':'최고 기록 '+best.toFixed(1)+'초'}\n\n다시 하려면 탭</p>`;}}}
+ if(state==='play')$('ov').dataset.s='';
+ wheel.rotation.z+=s/R*dt;
+ if(fall){fall.vy-=22*dt;fall.x+=fall.vx*dt;fall.y+=fall.vy*dt;fall.r+=fall.sp*dt;fall.rx+=dt*2;
+  if(fall.y<POOL+.1&&!fall.splashed){fall.splashed=true;for(let i=0;i<60;i++)spawn(fall.x,POOL,rnd(-.5,.5),rnd(-3,3),rnd(2,7),rnd(-2,2),1);}
+  if(fall.splashed){fall.vy*=.92;fall.vx*=.92;fall.y-=dt*.8;}}
+ shake=Math.max(0,shake-dt);
+ // 물줄기
+ const sr=.05+flow*.2;stream.scale.set(sr,1,sr);
+ const n=flow*9*dt*60,m=Math.floor(n)+(Math.random()<n%1?1:0);for(let i=0;i<m;i++)spawn(SX+rnd(-.2,.2)*(.3+flow),2.5,rnd(-.3,.3),rnd(-.5,-.2),0,rnd(-.2,.2),0);
+ for(let i=0;i<NP;i++){if(!pl[i])continue;const j=i*3;pv[j+1]-=14*dt;pp[j]+=pv[j]*dt;pp[j+1]+=pv[j+1]*dt;pp[j+2]+=pv[j+2]*dt;
+  if(pp[j+1]<POOL){if(pl[i]===1&&Math.random()<.35)spawn(pp[j],POOL,pp[j+2],rnd(-1,1),rnd(1,3),rnd(-1,1),1);pl[i]=0;pp[j+1]=-99;}}
+ pg.attributes.position.needsUpdate=true;
+ // 물결
+ const amp=.05+.05*flow;
+ for(let i=0;i<wp.count;i++){const x=wp.getX(i),y=wp.getY(i);wp.setZ(i,Math.sin(x*.9+clock*1.7)*amp+Math.cos(y*1.1+clock*1.3)*amp+Math.sin((x+y)*.4+clock*.8)*.06);}
+ wp.needsUpdate=true;wg.computeVertexNormals();
+ place();
+ if(mixer){ts=state==='dead'?.6:Math.min(2.4,.15+v/140);mixer.update(dt*ts);}
+ const sh=shake*.5;cam.position.set(.5+Math.sin(clock*.25)*.5+rnd(-sh,sh),2+Math.cos(clock*.2)*.25+rnd(-sh,sh),camZ);cam.lookAt(.3,.5,0);
+ // HUD
+ $('tv').textContent=fallT.toFixed(1)+'초';$('ff').style.height=flow*100+'%';
+ $('mk').style.left=(50+Math.max(-1,Math.min(1,state==='ready'?0:phi/PHI_MAX))*49)+'%';
+ $('warn').style.opacity=state==='play'?warn*(.5+.5*Math.sin(clock*18)):0;
+}
+let last=performance.now();
+(function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;update(dt);renderer.render(scene,cam);requestAnimationFrame(loop);})(last);
+</script>
+</body>
+</html>
