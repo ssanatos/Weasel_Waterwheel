@@ -78,7 +78,7 @@ for(const z of[-WD/2,WD/2])S(new THREE.Mesh(new THREE.TorusGeometry(RW-.1,.17,10
 for(const z of[-WD/2+.1,WD/2-.1])for(let i=0;i<8;i++){const gp=new THREE.Group();gp.rotation.z=i*Math.PI/4;wheel.add(gp);box(RW,.24,.16,midW,RW/2,0,z,gp);}
 const N=36;
 for(let i=0;i<N;i++){const gp=new THREE.Group();gp.rotation.z=i*2*Math.PI/N;wheel.add(gp);box(.14,.5,WD+.3,slatW,RW+.03,0,0,gp);}
-for(let i=0;i<12;i++){const gp=new THREE.Group();gp.rotation.z=(i+.5)*Math.PI/6;wheel.add(gp);box(.2,.1,WD+.3,darkW,RW+.2,0,0,gp);}
+for(let i=0;i<12;i++){const gp=new THREE.Group();gp.rotation.z=(i+.5)*Math.PI/6;wheel.add(gp);box(.1,.1,WD+.3,darkW,RW+.15,0,0,gp);}
 for(const z of[-WD/2+.1,WD/2-.1])S(new THREE.Mesh(new THREE.TorusGeometry(RW+.1,.045,6,72),metalM),0,0,z,wheel);
 const axle=S(new THREE.Mesh(new THREE.CylinderGeometry(.34,.34,WD+3.2,20),metalM),0,0,0,wheel);axle.rotation.x=Math.PI/2;
 // 받침대
@@ -139,20 +139,32 @@ for(const [hx,hz,off] of [[.4,.1,0],[.4,-.1,Math.PI],[-.38,.1,Math.PI],[-.38,-.1
 body.traverse(o=>{if(o.isMesh)o.receiveShadow=true;});
 
 // ---------- GLB 모델 (mink_lowpoly.glb) ----------
-const MODEL_FILE='mink_lowpoly.glb',MODEL_LEN=2.2; // 모델 전체 길이(꼬리 포함, 월드 단위)
-let model=null,mixer=null,loading=true,ts=0;
+// 파일 안의 애니메이션은 달리기가 아니라 [걷기 시작 → 제자리 → 뒤로 물러남] 영상이라서,
+// 그중 발이 실제로 한 걸음 움직이는 구간(11~32프레임)만 반복하고, 몸이 앞으로 가는 움직임은 제거했어요.
+const MODEL_FILE='mink_lowpoly.glb',MODEL_LEN=3.3; // 모델 전체 길이(꼬리 포함, 월드 단위). 크기 조절은 이 값
+const LOOP_A=11,LOOP_B=32,GROUND=.002,FOOT=.229; // FOOT: 원본 영상에서 발이 몸 대비 움직이는 속도
+const CZ=[0.0, 0.0063, 0.0196, 0.0359, 0.0526, 0.0706, 0.09, 0.1077, 0.1215, 0.1366, 0.1542, 0.1671, 0.1797, 0.2015, 0.2214, 0.2264, 0.2142, 0.1999, 0.1944, 0.1933, 0.195, 0.2001],CX=[0.0, 0.0018, 0.0047, 0.0074, 0.0106, 0.0111, 0.0109, 0.0116, 0.0128, 0.0138, 0.0127, 0.011, 0.0081, 0.0028, 0.0018, 0.0037, 0.0005, -0.0023, -0.0029, -0.0051, -0.0064, -0.0024];
+let model=null,mixer=null,act=null,animRoot=null,loading=true,ts=0;
 new THREE.GLTFLoader().load(MODEL_FILE,gltf=>{
  const holder=new THREE.Group();holder.add(gltf.scene);holder.rotation.y=Math.PI/2+.11; // 머리가 +x(달리는 방향)를 보도록
  const wrap=new THREE.Group();wrap.add(holder);wrap.updateMatrixWorld(true);
  const bb=new THREE.Box3().setFromObject(wrap),sz=bb.getSize(new THREE.Vector3());
  wrap.scale.setScalar(MODEL_LEN/sz.x);
- holder.position.set(-(bb.min.x+bb.max.x)/2,-bb.min.y,-(bb.min.z+bb.max.z)/2);
+ holder.position.set(-(bb.min.x+bb.max.x)/2,-GROUND,-(bb.min.z+bb.max.z)/2); // 발바닥이 y=0
  gltf.scene.traverse(o=>{if(o.isMesh){o.castShadow=o.receiveShadow=true;o.frustumCulled=false;}});
- if(gltf.animations.length){mixer=new THREE.AnimationMixer(gltf.scene);mixer.clipAction(gltf.animations[0]).play();}
+ if(gltf.animations.length){animRoot=gltf.scene;mixer=new THREE.AnimationMixer(gltf.scene);
+  act=mixer.clipAction(THREE.AnimationUtils.subclip(gltf.animations[0],'step',LOOP_A,LOOP_B,24));act.play();}
  body.visible=false;weasel.scale.setScalar(1);weasel.add(wrap);model=wrap;
  loading=false;$('ld').textContent='';
 },e=>{if(e.total)$('ld').textContent='모델 불러오는 중… '+Math.round(e.loaded/e.total*100)+'%';},
 err=>{console.error(err);loading=false;$('ld').textContent='모델 파일을 못 불러와서 기본 족제비로 실행해요 (깃허브 페이지나 웹서버에서 열어야 해요)';});
+function stepAnim(dt){
+ // 달리는 속도(v)에 맞춰 발이 땅(물레방아 바닥)을 밀어내는 속도가 같아지게 재생 속도를 정함
+ ts=state==='dead'?1:(v<6?0:Math.min(9,(v*.02/model.scale.x)/FOOT));
+ mixer.update(dt*ts);
+ const f=Math.min(20.999,act.time*24),i=f|0,u=f-i;
+ animRoot.position.set(-(CX[i]+(CX[i+1]-CX[i])*u),0,-(CZ[i]+(CZ[i+1]-CZ[i])*u)); // 몸이 앞으로 나가는 움직임 제거
+}
 
 // ---------- 게임 ----------
 let state='ready',t=0,best=+(localStorage.getItem('weaselBest')||0),s=110,flow=.4,flowT=.4,flowTimer=2,v=0,phi=0,ph=0,hold=false,deadT=0,shake=0,fall=null,clock=0,warn=0,fallT=0;
@@ -165,7 +177,7 @@ const keys=[' ','ArrowRight','ArrowUp','d','D'];
 addEventListener('keydown',e=>{if(keys.includes(e.key)){e.preventDefault();press()}});
 addEventListener('keyup',e=>{if(keys.includes(e.key))hold=false});
 
-function place(){const r=RW+.14;
+function place(){const r=RW+.098; // 발바닥이 널빤지 윗면(RW+.10)에 닿도록
  if(state!=='dead'){weasel.visible=true;weasel.position.set(r*Math.sin(phi),r*Math.cos(phi),0);weasel.rotation.set(0,0,-phi);}
  else if(fall){weasel.position.set(fall.x,fall.y,fall.z);weasel.rotation.set(fall.rx,0,fall.r);weasel.visible=fall.y>-3;}
  const f=state==='dead'?0:Math.sin(ph*2)*.02;body.position.y=Math.abs(Math.sin(ph))*.02*(v>20?1:0);body.rotation.z=f;t2.rotation.z=Math.sin(ph*2+1)*.03;
@@ -183,7 +195,7 @@ function update(dt){
   v+=(hold?340:-250)*dt;v=Math.max(0,Math.min(340,v));
   phi+=(v-s)/R*dt;ph+=v*dt*.06;
   warn=Math.max(0,Math.abs(phi)/PHI_MAX-.6)/.4;
-  if(Math.abs(phi)>PHI_MAX){state='dead';deadT=0;shake=.5;const r=RW+.14;
+  if(Math.abs(phi)>PHI_MAX){state='dead';deadT=0;shake=.5;const r=RW+.098;
    fall={x:r*Math.sin(phi),y:r*Math.cos(phi),z:0,vx:(phi<0?-s*.6:v*.8)*.02,vy:2.6,vz:0,r:-phi,rx:0,sp:phi<0?4:-5,splashed:false};
    if(t>best){best=t;try{localStorage.setItem('weaselBest',best)}catch(e){}}
    $('best').textContent='최고 기록 '+best.toFixed(1)+'초';
@@ -207,7 +219,7 @@ function update(dt){
  for(let i=0;i<wp.count;i++){const x=wp.getX(i),y=wp.getY(i);wp.setZ(i,Math.sin(x*.9+clock*1.7)*amp+Math.cos(y*1.1+clock*1.3)*amp+Math.sin((x+y)*.4+clock*.8)*.06);}
  wp.needsUpdate=true;wg.computeVertexNormals();
  place();
- if(mixer){ts=state==='dead'?.6:Math.min(2.4,.15+v/140);mixer.update(dt*ts);}
+ if(mixer&&model)stepAnim(dt);
  const sh=shake*.5;cam.position.set(.5+Math.sin(clock*.25)*.5+rnd(-sh,sh),2+Math.cos(clock*.2)*.25+rnd(-sh,sh),camZ);cam.lookAt(.3,.5,0);
  // HUD
  $('tv').textContent=fallT.toFixed(1)+'초';$('ff').style.height=flow*100+'%';
